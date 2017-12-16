@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="script.service.kodi.cloud.link" name="Kodi Cloud Link" version="0.9.0" provider-name="Matthew C. Ruschmann">
+  <requires>
+    <import addon="xbmc.python" version="2.1.0"/>
+  </requires>
+  <extension point="xbmc.service" library="main.py" start="login" />
+  <extension point="xbmc.python.script" library="main.py">
+    <provides>executable</provides>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_us">Provides a remote command and control link to remote servers.</summary>
+    <description lang="en_us">Provides a link to remote servers for remote command and control using the same RPC API usually exposed by the web service.</description>
+    <disclaimer lang="en_us">You must configure a unique identifier that the remote server expects.</disclaimer>
+    <language></language>
+    <platform>all</platform>
+    <license>GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007</license>
+    <forum></forum>
+    <website></website>
+    <email>kodi_cloud_link@ruschmann.net</email>
+    <source></source>
+    <news></news>
+    <assets>
+        <icon>resources/icon.png</icon>
+        <fanart>resources/fanart.jpg</fanart>
+    </assets>
+  </extension>
+</addon>
