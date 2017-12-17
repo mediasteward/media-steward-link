@@ -21,14 +21,34 @@ import struct
 import errno
 
 import xbmc
-#import xbmcaddon
-#import xbmcgui
+import xbmcgui
 
 TCP_HOST = '127.0.0.1'
 TCP_PORT = 59348
 
-LONG_WAIT_SECONDS = 5  # TODO increase
-IDLE_SECONDS = 0.1
+CONSECUTIVE_RETRIES = 5
+SHORT_WAIT_SECONDS = 30
+LONG_WAIT_SECONDS = 300
+IDLE_SECONDS = 0.05  # TODO implement as timeout on socket
+
+# parameters shared with the CloudLinkServer
+MAX_NUMBER_OF_PACKETS = 32767
+MAX_MESSAGE_SIZE = 2100000000
+
+
+def soft_close():
+    global conn, state
+    if conn is not None:
+        conn.shutdown(socket.SHUT_RDWR)
+    hard_close()
+
+
+def hard_close():
+    global conn, state
+    if conn is not None:
+        conn.close()
+        conn = None
+    state = 'disconnected'
 
 
 if __name__ == '__main__':
@@ -39,162 +59,193 @@ if __name__ == '__main__':
     header = b''
     bytes_remaining = 0
     packets_remaining = 0
-    retries = 0
+    control_message_flag = False
+    tries = 0
 
+    # The main loop performs actions based on the current state. It continues
+    # looping until an abort is requested by Kodi.
     while not monitor.abortRequested():
         if state == 'disconnected':
+            # TODO do not use blocking socket during connect
+            # attempt to connect
             err_no = -1234567890
             if conn is None:
+                # create a socket if None exists
                 conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            # Retry connecting a few times quickly
-            xbmc.log("KodiCloudLink connecting to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
-            retries += 1
-            err_no = conn.connect_ex((TCP_HOST, TCP_PORT))
-            if err_no == 0:
-                xbmc.log("KodiCloudLink connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
-                conn.setblocking(0)
-                state = 'idle'
-                bytes_remaining = 4
-                retries = 0
-            elif err_no == 106:
-                xbmc.log("KodiCloudLink already connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
-                conn.setblocking(0)
-                state = 'idle'
-                bytes_remaining = 4
-                retries = 0
+            xbmc.log("CloudLink connecting to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
+            tries += 1
+            try:
+                conn.connect((TCP_HOST, TCP_PORT))
+            except socket.error as msg:
+                if msg[0] == errno.EISCONN:
+                    # this should not happen, but handle it if it does
+                    xbmc.log("CloudLink already connected to %s" % TCP_HOST, level=xbmc.LOGWARNING)
+                    conn.setblocking(0)
+                    state = 'idle'
+                    bytes_remaining = 4
+                    tries = 0
+                else:
+                    # on failed connection
+                    if tries % CONSECUTIVE_RETRIES == 0:
+                        wait_seconds = SHORT_WAIT_SECONDS
+                    else:
+                        toast = xbmcgui.Dialog()
+                        toast.notification("CloudLink", "Unable to connect to " + TCP_HOST + ". Trying again in " +
+                                           str(round(LONG_WAIT_SECONDS/60, 0)) + " minutes.",
+                                           icon=xbmcgui.NOTIFICATION_WARNING)
+                        wait_seconds = LONG_WAIT_SECONDS
+                    xbmc.log("CloudLink connection failed: errno=%d. Connection failed %d consecutive times, waiting "
+                             "%d seconds before trying again" % (msg[0], tries, wait_seconds), level=xbmc.LOGNOTICE)
+                    monitor.waitForAbort(wait_seconds)
+                    # start a new connection just in case the existing socket is bad
+                    hard_close()
             else:
-                # Long wait before trying again
-                xbmc.log("KodiCloudLink connection failed %d times, waiting %d seconds before trying again" %
-                         (retries, LONG_WAIT_SECONDS), level=xbmc.LOGWARNING)
-                monitor.waitForAbort(LONG_WAIT_SECONDS)
+                # on successful connection
+                xbmc.log("CloudLink connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
+                conn.setblocking(0)
+                state = 'idle'
+                bytes_remaining = 4
+                tries = 0
 
         if state == 'idle':
             try:
-                # Check number of packets
-                buffer = conn.recv(bytes_remaining)
-                header += buffer
-                bytes_remaining -= len(buffer)
-                if bytes_remaining < 0:
-                    xbmc.log("KodiCloudLink incorrect header size during %s" % state, level=xbmc.LOGWARNING)
-                    state = 'disconnected'
-                    conn.close()
-                    conn = None
-                elif bytes_remaining == 0:
-                    xbmc.log("KodiCloudLink received number of packets", level=xbmc.LOGNOTICE)
-                    packets_remaining = struct.unpack('>l', header)[0]
-                    bytes_remaining = 4
-                    header = b''
-                    state = 'sizing'
-                    # TODO check number of packets
-                elif len(buffer) == 0:
-                    xbmc.log("KodiCloudLink disconnecting gracefully", level=xbmc.LOGNOTICE)
-                    state = 'disconnected'
-                    conn.shutdown(socket.SHUT_RDWR)
-                    conn.close()
-                    conn = None
-                else:
-                    xbmc.log("KodiCloudLink disconnecting due to error in number of packets", level=xbmc.LOGNOTICE)
-                    state = 'disconnected'
-                    conn.close()
-                    conn = None
+                # check the number of packets
+                receive_buffer = conn.recv(bytes_remaining)
+                header += receive_buffer
+                bytes_remaining -= len(receive_buffer)
             except socket.error as msg:
                 if msg[0] == errno.EAGAIN:
+                    # no bytes to receive now, continue
                     monitor.waitForAbort(IDLE_SECONDS)
                 else:
-                    xbmc.log("KodiCloudLink exception: %s, disconnecting" % str(msg), level=xbmc.LOGNOTICE)
-                    state = 'disconnected'
-                    conn.close()
-                    conn = None
+                    # failed receive
+                    xbmc.log("CloudLink exception: %s, disconnecting" % str(msg), level=xbmc.LOGNOTICE)
+                    hard_close()
+            else:
+                # on successful receive
+                if bytes_remaining < 0:
+                    # received more bytes than we wanted, should never happen
+                    xbmc.log("CloudLink incorrect header size during %s" % state, level=xbmc.LOGWARNING)
+                    soft_close()
+                elif bytes_remaining == 0:
+                    # great! we got what we wanted
+                    xbmc.log("CloudLink received number of packets", level=xbmc.LOGNOTICE)
+                    packets_remaining = struct.unpack('>l', header)[0]
+                    header = b''
+                    bytes_remaining = 4
+                    if packets_remaining == -1:
+                        # this is a control message
+                        packets_remaining = 1
+                        control_message_flag = True
+                        state = 'sizing'
+                    elif packets_remaining > MAX_NUMBER_OF_PACKETS or packets_remaining < 1:
+                        # this should not happen, something has gone wrong
+                        soft_close()
+                    else:
+                        # not a control message
+                        control_message_flag = False
+                        state = 'sizing'
+                elif len(receive_buffer) == 0:
+                    # disconnect signal from the other end
+                    xbmc.log("CloudLink disconnecting gracefully", level=xbmc.LOGNOTICE)
+                    soft_close()
+                else:
+                    # this should never happen
+                    xbmc.log("CloudLink disconnecting due to error in number of packets", level=xbmc.LOGNOTICE)
+                    hard_close()
 
         if state == 'sizing':
             try:
-                # Check for size of packet
-                buffer = conn.recv(bytes_remaining)
-                header += buffer
-                bytes_remaining -= len(buffer)
-                if bytes_remaining < 0:
-                    xbmc.log("KodiCloudLink incorrect header size during sizing", level=xbmc.LOGWARNING)
-                    state = 'disconnected'
-                    conn.close()
-                    conn = None
-                elif bytes_remaining == 0:
-                    xbmc.log("KodiCloudLink received number of bytes", level=xbmc.LOGNOTICE)
-                    bytes_remaining = struct.unpack('>l', header)[0]
-                    header = b''
-                    state = 'message'
-                    # TODO check max size
-                elif len(buffer) == 0:
-                    xbmc.log("KodiCloudLink disconnecting gracefully", level=xbmc.LOGNOTICE)
-                    state = 'disconnected'
-                    conn.shutdown(socket.SHUT_RDWR)
-                    conn.close()
-                    conn = None
-                else:
-                    xbmc.log("KodiCloudLink disconnecting due to error in sizing", level=xbmc.LOGNOTICE)
-                    state = 'disconnected'
-                    conn.close()
-                    conn = None
+                # check for size of message
+                receive_buffer = conn.recv(bytes_remaining)
+                header += receive_buffer
+                bytes_remaining -= len(receive_buffer)
             except socket.error as msg:
                 if msg[0] == errno.EAGAIN:
+                    # no bytes to receive now, continue
                     monitor.waitForAbort(IDLE_SECONDS)
                 else:
-                    xbmc.log("KodiCloudLink exception: %s, disconnecting" % str(msg), level=xbmc.LOGNOTICE)
-                    state = 'disconnected'
-                    conn.close()
+                    # failed receive
+                    xbmc.log("CloudLink exception: %s, disconnecting" % str(msg), level=xbmc.LOGNOTICE)
+                    hard_close()
+            else:
+                # on successful receive
+                if bytes_remaining < 0:
+                    # received more bytes than we wanted, should never happen
+                    xbmc.log("CloudLink incorrect header size during sizing", level=xbmc.LOGWARNING)
+                    soft_close()
+                elif bytes_remaining == 0:
+                    # great! we got what we wanted
+                    xbmc.log("CloudLink received number of bytes", level=xbmc.LOGNOTICE)
+                    header = b''
+                    bytes_remaining = struct.unpack('>l', header)[0]
+                    if bytes_remaining < 1 or bytes_remaining > MAX_MESSAGE_SIZE:
+                        soft_close()
+                    else:
+                        state = 'message'
+                elif len(receive_buffer) == 0:
+                    # disconnect signal from the other end
+                    xbmc.log("CloudLink disconnecting gracefully", level=xbmc.LOGNOTICE)
+                    hard_close()
                     conn = None
+                else:
+                    # this should never happen
+                    xbmc.log("CloudLink disconnecting due to error in sizing", level=xbmc.LOGNOTICE)
+                    hard_close()
 
         if state == 'message':
             try:
-                # Check for size of packet
-                buffer = conn.recv(bytes_remaining)
-                data += buffer
-                bytes_remaining -= len(buffer)
+                # receive the message
+                receive_buffer = conn.recv(bytes_remaining)
+                data += receive_buffer
+                bytes_remaining -= len(receive_buffer)
+            except socket.error as msg:
+                if msg[0] == errno.EAGAIN:
+                    # no bytes to receive now, continue
+                    monitor.waitForAbort(IDLE_SECONDS)
+                else:
+                    # failed receive
+                    xbmc.log("CloudLink exception: %s, disconnecting" % str(msg), level=xbmc.LOGNOTICE)
+                    hard_close()
+            else:
+                # on successful receive
                 if bytes_remaining < 0:
-                    xbmc.log("KodiCloudLink incorrect message size", level=xbmc.LOGWARNING)
-                    state = 'disconnected'
-                    conn.close()
-                    conn = None
+                    xbmc.log("CloudLink incorrect message size", level=xbmc.LOGWARNING)
+                    hard_close()
                 elif bytes_remaining == 0:
-                    xbmc.log("KodiCloudLink received message", level=xbmc.LOGNOTICE)
+                    xbmc.log("CloudLink received message", level=xbmc.LOGNOTICE)
                     packets_remaining -= 1
                     if packets_remaining <= 0:
                         state = 'processing'
                     else:
                         state = 'sizing'
-                elif len(buffer) == 0:
-                    xbmc.log("KodiCloudLink disconnecting gracefully", level=xbmc.LOGNOTICE)
-                    state = 'disconnected'
-                    conn.shutdown(socket.SHUT_RDWR)
-                    conn.close()
-                    conn = None
+                    bytes_remaining = 4
+                elif len(receive_buffer) == 0:
+                    xbmc.log("CloudLink disconnecting gracefully", level=xbmc.LOGNOTICE)
+                    soft_close()
                 else:
-                    xbmc.log("KodiCloudLink disconnecting due to error in message", level=xbmc.LOGNOTICE)
-                    state = 'disconnected'
-                    conn.close()
-                    conn = None
-            except socket.error as msg:
-                if msg[0] == errno.EAGAIN:
-                    monitor.waitForAbort(IDLE_SECONDS)
-                else:
-                    xbmc.log("KodiCloudLink exception: %s, disconnecting" % str(msg), level=xbmc.LOGNOTICE)
-                    state = 'disconnected'
-                    conn.close()
-                    conn = None
+                    xbmc.log("CloudLink disconnecting due to error in message", level=xbmc.LOGNOTICE)
+                    hard_close()
 
         if state == 'processing':
-            try:
-                response = xbmc.executeJSONRPC(data)
-                xbmc.log("KodiCloudLink sending %s" % response, level=xbmc.LOGNOTICE)
-                conn.send(struct.pack('>l', 1))  # TODO packetize
-                conn.send(struct.pack('>l', len(response)))
-                conn.send(response.encode('utf-8'))
-            except socket.error as msg:
-                xbmc.log("KodiCloudLink exception: %s, disconnecting" % str(msg), level=xbmc.LOGNOTICE)
-                state = 'disconnected'
-                conn.close()
-                conn = None
-            data = b''
-            state = 'idle'
+            if control_message_flag:
+                # TODO Check version number
+                # TODO Check for valid UUID
+                data = b''
+                state = 'idle'
+            else:
+                try:
+                    response = xbmc.executeJSONRPC(data)
+                    xbmc.log("CloudLink sending %s" % response, level=xbmc.LOGNOTICE)
+                    conn.send(struct.pack('>l', 1))  # TODO packetize
+                    conn.send(struct.pack('>l', len(response)))
+                    conn.send(response.encode('utf-8'))
+                except socket.error as msg:
+                    xbmc.log("CloudLink exception: %s, disconnecting" % str(msg), level=xbmc.LOGNOTICE)
+                    hard_close()
+                else:
+                    data = b''
+                    state = 'idle'
 
-    # conn.shutdown(socket.SHUT_RDWR)
-    conn.close()
+    # end the service
+    hard_close()
