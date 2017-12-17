@@ -27,8 +27,8 @@ TCP_HOST = '127.0.0.1'
 TCP_PORT = 59348
 
 CONSECUTIVE_RETRIES = 5
-SHORT_WAIT_SECONDS = 30
-LONG_WAIT_SECONDS = 300
+SHORT_WAIT_SECONDS = 5  # increase
+LONG_WAIT_SECONDS = 30  # increase
 IDLE_SECONDS = 0.05  # TODO implement as timeout on socket
 
 # parameters shared with the CloudLinkServer
@@ -87,13 +87,13 @@ if __name__ == '__main__':
                 else:
                     # on failed connection
                     if tries % CONSECUTIVE_RETRIES == 0:
-                        wait_seconds = SHORT_WAIT_SECONDS
-                    else:
                         toast = xbmcgui.Dialog()
                         toast.notification("CloudLink", "Unable to connect to " + TCP_HOST + ". Trying again in " +
-                                           str(round(LONG_WAIT_SECONDS/60, 0)) + " minutes.",
+                                           str(int(round(LONG_WAIT_SECONDS / 60))) + " minutes.",
                                            icon=xbmcgui.NOTIFICATION_WARNING)
                         wait_seconds = LONG_WAIT_SECONDS
+                    else:
+                        wait_seconds = SHORT_WAIT_SECONDS
                     xbmc.log("CloudLink connection failed: errno=%d. Connection failed %d consecutive times, waiting "
                              "%d seconds before trying again" % (msg[0], tries, wait_seconds), level=xbmc.LOGNOTICE)
                     monitor.waitForAbort(wait_seconds)
