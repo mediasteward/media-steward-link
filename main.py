@@ -43,7 +43,7 @@ MAX_MESSAGE_SIZE = 2100000000
 
 def send(message, message_id=0):
     global conn
-    compressed_message = zlib.compress(message.encode('utf-8'))
+    compressed_message = zlib.compress(message)
     if message_id < 0:
         num_packets = 1
         conn.send(struct.pack('>l', message_id))
@@ -64,16 +64,16 @@ def send(message, message_id=0):
 
 def soft_close():
     global conn, state
-    xbmc.log("CloudLink soft disconnect", level=xbmc.LOGNOTICE)
     if conn is not None:
+        xbmc.log("CloudLink soft disconnect", level=xbmc.LOGDEBUG)
         conn.shutdown(socket.SHUT_RDWR)
     hard_close()
 
 
 def hard_close():
     global conn, state
-    xbmc.log("CloudLink disconnecting", level=xbmc.LOGNOTICE)
     if conn is not None:
+        xbmc.log("CloudLink disconnecting", level=xbmc.LOGNOTICE)
         conn.close()
         conn = None
     state = 'disconnected'
@@ -133,7 +133,7 @@ if __name__ == '__main__':
                 xbmc.log("CloudLink connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
                 conn.settimeout(IDLE_SECONDS)
                 announce = "{\"version\":\"" + xbmcaddon.Addon().getAddonInfo('version') + "\",\"uuid\":\"main\"}"
-                send(announce, message_id=-1)
+                send(announce.encode('utf-8'), message_id=-1)
                 state = 'idle'
                 bytes_remaining = 4
                 tries = 0
