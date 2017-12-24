@@ -22,6 +22,7 @@ import errno
 import zlib
 import json
 import time
+import math
 
 import xbmc
 import xbmcgui
@@ -40,8 +41,30 @@ MAX_NUMBER_OF_PACKETS = 32767
 MAX_MESSAGE_SIZE = 2100000000
 
 
+def send(message, message_id=0):
+    global conn
+    compressed_message = zlib.compress(message.encode('utf-8'))
+    if message_id < 0:
+        num_packets = 1
+        conn.send(struct.pack('>l', message_id))
+    else:
+        num_packets = int(math.ceil(float(len(compressed_message)) / float(MAX_MESSAGE_SIZE)))
+        conn.send(struct.pack('>l', 1))
+    for pkt in range(0, num_packets):
+        if pkt + 1 < num_packets:
+            conn.send(struct.pack('>l', MAX_MESSAGE_SIZE))
+            first = pkt * MAX_MESSAGE_SIZE
+            last = (pkt + 1) * MAX_MESSAGE_SIZE
+        else:
+            conn.send(struct.pack('>l', len(compressed_message)))
+            first = 0
+            last = len(compressed_message)
+        conn.send(compressed_message[first:last])
+
+
 def soft_close():
     global conn, state
+    xbmc.log("CloudLink soft disconnect", level=xbmc.LOGNOTICE)
     if conn is not None:
         conn.shutdown(socket.SHUT_RDWR)
     hard_close()
@@ -49,6 +72,7 @@ def soft_close():
 
 def hard_close():
     global conn, state
+    xbmc.log("CloudLink disconnecting", level=xbmc.LOGNOTICE)
     if conn is not None:
         conn.close()
         conn = None
@@ -65,12 +89,13 @@ if __name__ == '__main__':
     packets_remaining = 0
     control_message_flag = False
     tries = 0
-    wait_seconds = LONG_WAIT_SECONDS
     start = 0
 
     # The main loop performs actions based on the current state. It continues
     # looping until an abort is requested by Kodi.
     while not monitor.abortRequested():
+        wait_seconds = SHORT_WAIT_SECONDS  # prefer a short wait every loop
+
         if state == 'disconnected':
             # TODO do not use blocking socket during connect
             # attempt to connect
@@ -99,8 +124,6 @@ if __name__ == '__main__':
                                            str(int(round(LONG_WAIT_SECONDS / 60))) + " minutes.",
                                            icon=xbmcgui.NOTIFICATION_WARNING)
                         wait_seconds = LONG_WAIT_SECONDS
-                    else:
-                        wait_seconds = SHORT_WAIT_SECONDS
                     xbmc.log("CloudLink connection failed: errno=%d. Connection failed %d consecutive times, waiting "
                              "%d seconds before trying again" % (err.errno, tries, wait_seconds), level=xbmc.LOGNOTICE)
                     # start a new connection just in case the existing socket is bad
@@ -110,10 +133,7 @@ if __name__ == '__main__':
                 xbmc.log("CloudLink connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
                 conn.settimeout(IDLE_SECONDS)
                 announce = "{\"version\":\"" + xbmcaddon.Addon().getAddonInfo('version') + "\",\"uuid\":\"main\"}"
-                announce = zlib.compress(announce.encode('utf-8'))
-                conn.send(struct.pack('>l', -1))
-                conn.send(struct.pack('>l', len(announce)))
-                conn.send(announce)
+                send(announce, message_id=-1)
                 state = 'idle'
                 bytes_remaining = 4
                 tries = 0
@@ -142,8 +162,8 @@ if __name__ == '__main__':
                     soft_close()
                 elif bytes_remaining == 0:
                     # great! we got what we wanted
-                    xbmc.log("CloudLink received number of packets", level=xbmc.LOGNOTICE)
                     packets_remaining = struct.unpack('>l', header)[0]
+                    xbmc.log("CloudLink received number of packets %d" % packets_remaining, level=xbmc.LOGNOTICE)
                     header = b''
                     bytes_remaining = 4
                     if packets_remaining == -1:
@@ -193,8 +213,8 @@ if __name__ == '__main__':
                     soft_close()
                 elif bytes_remaining == 0:
                     # great! we got what we wanted
-                    xbmc.log("CloudLink received number of bytes %d", level=xbmc.LOGNOTICE)
                     bytes_remaining = struct.unpack('>l', header)[0]
+                    xbmc.log("CloudLink received number of bytes %d" % bytes_remaining, level=xbmc.LOGNOTICE)
                     header = b''
                     if bytes_remaining < 1 or bytes_remaining > MAX_MESSAGE_SIZE:
                         soft_close()
@@ -253,28 +273,26 @@ if __name__ == '__main__':
         if state == 'processing':
             if control_message_flag:
                 response = json.loads(zlib.decompress(data).decode('utf-8'))
+                xbmc.log("CloudLink received announce %s" % response, level=xbmc.LOGNOTICE)
                 if 'valid-version' not in response or not response['valid-version']:
                     xbmc.log("CloudLink disconnecting due to error in message", level=xbmc.LOGERROR)
                     toast = xbmcgui.Dialog()
                     toast.notification("CloudLink", "Outdated addon version. Please update.",
                                        icon=xbmcgui.NOTIFICATION_ERROR)
-                    break
+                    break  # ends the main loop
                 if 'valid-uuid' not in response or not response['valid-uuid']:
                     xbmc.log("CloudLink disconnecting due to error in message", level=xbmc.LOGERROR)
                     toast = xbmcgui.Dialog()
                     toast.notification("CloudLink", "Invalid UUID. Please change settings.",
                                        icon=xbmcgui.NOTIFICATION_ERROR)
-                    break
+                    break  # ends the main loop
                 data = b''
                 state = 'idle'
             else:
                 try:
                     response = xbmc.executeJSONRPC(zlib.decompress(data))
                     xbmc.log("CloudLink sending %s" % response, level=xbmc.LOGNOTICE)
-                    response = zlib.compress(response.encode('utf-8'))
-                    conn.send(struct.pack('>l', 1))  # TODO packetize
-                    conn.send(struct.pack('>l', len(response)))
-                    conn.send(response)
+                    send(response)
                 except socket.error as err:
                     xbmc.log("CloudLink exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
                     hard_close()
