@@ -21,7 +21,6 @@ import struct
 import errno
 import zlib
 import json
-import time
 import math
 
 import xbmc
@@ -89,7 +88,6 @@ if __name__ == '__main__':
     packets_remaining = 0
     control_message_flag = False
     tries = 0
-    start = 0
 
     # The main loop performs actions based on the current state. It continues
     # looping until an abort is requested by Kodi.
@@ -99,7 +97,6 @@ if __name__ == '__main__':
         if state == 'disconnected':
             # TODO do not use blocking socket during connect
             # attempt to connect
-            start = time.clock()
             err_no = -1234567890
             if conn is None:
                 # create a socket if None exists
@@ -301,7 +298,8 @@ if __name__ == '__main__':
                     state = 'idle'
 
         if state == 'disconnected':
-            monitor.waitForAbort(wait_seconds - time.clock() - start)
+            monitor.waitForAbort(wait_seconds)
 
     # end the service
+    xbmc.log("CloudLink exiting", level=xbmc.LOGNOTICE)
     hard_close()
