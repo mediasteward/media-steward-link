@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="script.service.cloud.link" name="Cloud Link" version="0.9.0" provider-name="Matthew C. Ruschmann">
+<addon id="script.service.mediasteward" name="Media Steward" version="0.9.1" provider-name="Matthew C. Ruschmann">
   <requires>
     <import addon="xbmc.python" version="2.1.0"/>
   </requires>
   <extension point="xbmc.service" library="main.py" start="login" />
-  <extension point="xbmc.python.script" library="main.py">
+  <extension point="xbmc.python.script" library="script.py">
     <provides>executable</provides>
   </extension>
   <extension point="xbmc.addon.metadata">
-    <summary lang="en_us">Provides a remote command and control link to remote servers.</summary>
-    <description lang="en_us">Provides a link to remote servers for remote command and control using the same RPC API usually exposed by the web service.</description>
-    <disclaimer lang="en_us">You must configure a unique identifier that the remote server expects.</disclaimer>
+    <summary lang="en_gb">Integrate Kodi with popular digital assistants</summary>
+    <description lang="en_gb">Connects to Media Steward's remote server (mediasteward.io), which forwards commands from Google Home or Alexa right to your Kodi. This link passes commands to and from the same JSON RPC API usually exposed by the web service.</description>
+    <disclaimer lang="en_gb">You must acquire an activation code from mediasteward.io.</disclaimer>
     <language></language>
     <platform>all</platform>
     <license>GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007</license>
     <forum></forum>
-    <website></website>
-    <email>cloud_link@ruschmann.net</email>
+    <website>https://mediasteward.io</website>
+    <email>media_steward@ruschmann.net</email>
     <source></source>
     <news></news>
     <assets>

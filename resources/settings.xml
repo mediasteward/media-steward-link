@@ -1,3 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings>
+<category label="983000">
+    <setting label="983001" id="uuid" type="action" action="RunScript(script.service.mediasteward, getuuid)" default="" />
+    <setting label="983002" id="ssl-validation" type="bool" default="true" />
+</category>
 </settings>

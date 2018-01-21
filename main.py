@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
-# Kodi Cloud Link
-# Copyright (C) 2017  Matthew C. Ruschmann <https://matthew.ruschmann.net>
+# Media Steward Link
+# Copyright (C) 2018  Matthew C. Ruschmann <https://matthew.ruschmann.net>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,6 +22,8 @@ import errno
 import zlib
 import json
 import math
+import time
+from string import Template
 
 import xbmc
 import xbmcgui
@@ -30,12 +32,13 @@ import xbmcaddon
 TCP_HOST = '127.0.0.1'
 TCP_PORT = 59348
 
-CONSECUTIVE_RETRIES = 20  # decrease
-SHORT_WAIT_SECONDS = 5  # increase
-LONG_WAIT_SECONDS = 30  # increase
-IDLE_SECONDS = 0.05
+CONSECUTIVE_RETRIES = 3
+SHORT_WAIT_SECONDS = 60
+LONG_WAIT_SECONDS = 300
+IDLE_SECONDS = 1.0
+RECONNECT_CHECK_SECONDS = 10.0
 
-# parameters shared with the CloudLinkServer
+# parameters shared with the server
 MAX_NUMBER_OF_PACKETS = 32767
 MAX_MESSAGE_SIZE = 2100000000
 
@@ -64,7 +67,7 @@ def send(message, message_id=0):
 def soft_close():
     global conn, state
     if conn is not None:
-        xbmc.log("CloudLink soft disconnect", level=xbmc.LOGDEBUG)
+        xbmc.log("Media Steward soft disconnect", level=xbmc.LOGDEBUG)
         conn.shutdown(socket.SHUT_RDWR)
     hard_close()
 
@@ -72,7 +75,7 @@ def soft_close():
 def hard_close():
     global conn, state
     if conn is not None:
-        xbmc.log("CloudLink disconnecting", level=xbmc.LOGNOTICE)
+        xbmc.log("Media Steward disconnecting", level=xbmc.LOGNOTICE)
         conn.close()
         conn = None
     state = 'disconnected'
@@ -80,60 +83,77 @@ def hard_close():
 
 if __name__ == '__main__':
     monitor = xbmc.Monitor()
+    addon = xbmcaddon.Addon()
     conn = None
-    state = 'disconnected'
     data = b''
     header = b''
     bytes_remaining = 0
     packets_remaining = 0
     control_message_flag = False
     tries = 0
+    state = 'connect'
+
+    # defaults to make PEP8 happy
+    wait_seconds = SHORT_WAIT_SECONDS
+    start = time.time()
+    last_reconnect_check = start
 
     # The main loop performs actions based on the current state. It continues
     # looping until an abort is requested by Kodi.
     while not monitor.abortRequested():
-        wait_seconds = SHORT_WAIT_SECONDS  # prefer a short wait every loop
 
-        if state == 'disconnected':
-            # TODO do not use blocking socket during connect
-            # attempt to connect
-            err_no = -1234567890
-            if conn is None:
-                # create a socket if None exists
-                conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            xbmc.log("CloudLink connecting to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
-            tries += 1
-            try:
-                conn.connect((TCP_HOST, TCP_PORT))
-            except socket.error as err:
-                if err.errno == errno.EISCONN:
-                    # this should not happen, but handle it if it does
-                    xbmc.log("CloudLink already connected to %s" % TCP_HOST, level=xbmc.LOGWARNING)
+        if state == 'connect':
+            uuid = addon.getSetting('uuid')
+            if len(uuid) == 32 and uuid.isalnum():
+                # TODO do not use blocking socket during connect
+                # attempt to connect
+                err_no = -1234567890
+                if conn is None:
+                    # create a socket if None exists
+                    conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                xbmc.log("Media Steward connecting to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
+                tries += 1
+                try:
+                    conn.connect((TCP_HOST, TCP_PORT))
+                except socket.error as err:
+                    if err.errno == errno.EISCONN:
+                        # this should not happen, but handle it if it does
+                        xbmc.log("Media Steward already connected to %s" % TCP_HOST, level=xbmc.LOGWARNING)
+                        conn.settimeout(IDLE_SECONDS)
+                        state = 'idle'
+                        bytes_remaining = 4
+                        tries = 0
+                    else:
+                        # on failed connection
+                        if tries % CONSECUTIVE_RETRIES == 0:
+                            wait = str(int(round(LONG_WAIT_SECONDS / 60)))
+                            text = Template(addon.getLocalizedString(983030)).safe_substitute(host=TCP_HOST, wait=wait)
+                            toast = xbmcgui.Dialog()
+                            toast.notification("Media Steward", text, icon=xbmcgui.NOTIFICATION_WARNING)
+                            wait_seconds = LONG_WAIT_SECONDS
+                        else:
+                            wait_seconds = SHORT_WAIT_SECONDS
+                        xbmc.log("Media Steward connection failed: errno=%d. Connection failed %d consecutive times, "
+                                 "waiting %d seconds before trying again" % (err.errno, tries, wait_seconds),
+                                 level=xbmc.LOGNOTICE)
+                        # start a new connection just in case the existing socket is bad
+                        hard_close()
+                        state = 'disconnected'
+                        start = time.time()
+                else:
+                    # on successful connection
+                    xbmc.log("Media Steward connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
                     conn.settimeout(IDLE_SECONDS)
+                    announce = {'version': addon.getAddonInfo('version'), 'uuid': uuid}
+                    send(json.dumps(announce).encode('utf-8'), message_id=-1)
                     state = 'idle'
                     bytes_remaining = 4
                     tries = 0
-                else:
-                    # on failed connection
-                    if tries % CONSECUTIVE_RETRIES == 0:
-                        toast = xbmcgui.Dialog()
-                        toast.notification("CloudLink", "Unable to connect to " + TCP_HOST + ". Trying again in " +
-                                           str(int(round(LONG_WAIT_SECONDS / 60))) + " minutes.",
-                                           icon=xbmcgui.NOTIFICATION_WARNING)
-                        wait_seconds = LONG_WAIT_SECONDS
-                    xbmc.log("CloudLink connection failed: errno=%d. Connection failed %d consecutive times, waiting "
-                             "%d seconds before trying again" % (err.errno, tries, wait_seconds), level=xbmc.LOGNOTICE)
-                    # start a new connection just in case the existing socket is bad
-                    hard_close()
             else:
-                # on successful connection
-                xbmc.log("CloudLink connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
-                conn.settimeout(IDLE_SECONDS)
-                announce = "{\"version\":\"" + xbmcaddon.Addon().getAddonInfo('version') + "\",\"uuid\":\"main\"}"
-                send(announce.encode('utf-8'), message_id=-1)
-                state = 'idle'
-                bytes_remaining = 4
-                tries = 0
+                state = 'uuid'
+                toast = xbmcgui.Dialog()
+                # "Please acquire valid UUID."
+                toast.notification("Media Steward", addon.getLocalizedString(983031), icon=xbmcgui.NOTIFICATION_ERROR)
 
         if state == 'idle':
             try:
@@ -149,18 +169,18 @@ if __name__ == '__main__':
                     pass
                 else:
                     # failed receive
-                    xbmc.log("CloudLink exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
                     hard_close()
             else:
                 # on successful receive
                 if bytes_remaining < 0:
                     # received more bytes than we wanted, should never happen
-                    xbmc.log("CloudLink incorrect header size during %s" % state, level=xbmc.LOGWARNING)
+                    xbmc.log("Media Steward incorrect header size during %s" % state, level=xbmc.LOGWARNING)
                     soft_close()
                 elif bytes_remaining == 0:
                     # great! we got what we wanted
                     packets_remaining = struct.unpack('>l', header)[0]
-                    xbmc.log("CloudLink received number of packets %d" % packets_remaining, level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward received number of packets %d" % packets_remaining, level=xbmc.LOGNOTICE)
                     header = b''
                     bytes_remaining = 4
                     if packets_remaining == -1:
@@ -177,13 +197,13 @@ if __name__ == '__main__':
                         state = 'sizing'
                 elif len(receive_buffer) == 0:
                     # disconnect signal from the other end
-                    xbmc.log("CloudLink disconnecting gracefully", level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward disconnecting gracefully", level=xbmc.LOGNOTICE)
                     soft_close()
                 elif bytes_remaining > 0:
                     pass
                 else:
                     # this should never happen
-                    xbmc.log("CloudLink disconnecting due to error in number of packets", level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward disconnecting due to error in number of packets", level=xbmc.LOGNOTICE)
                     hard_close()
 
         if state == 'sizing':
@@ -200,18 +220,18 @@ if __name__ == '__main__':
                     pass
                 else:
                     # failed receive
-                    xbmc.log("CloudLink exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
                     hard_close()
             else:
                 # on successful receive
                 if bytes_remaining < 0:
                     # received more bytes than we wanted, should never happen
-                    xbmc.log("CloudLink incorrect header size during sizing", level=xbmc.LOGWARNING)
+                    xbmc.log("Media Steward incorrect header size during sizing", level=xbmc.LOGWARNING)
                     soft_close()
                 elif bytes_remaining == 0:
                     # great! we got what we wanted
                     bytes_remaining = struct.unpack('>l', header)[0]
-                    xbmc.log("CloudLink received number of bytes %d" % bytes_remaining, level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward received number of bytes %d" % bytes_remaining, level=xbmc.LOGNOTICE)
                     header = b''
                     if bytes_remaining < 1 or bytes_remaining > MAX_MESSAGE_SIZE:
                         soft_close()
@@ -219,14 +239,14 @@ if __name__ == '__main__':
                         state = 'message'
                 elif len(receive_buffer) == 0:
                     # disconnect signal from the other end
-                    xbmc.log("CloudLink disconnecting gracefully", level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward disconnecting gracefully", level=xbmc.LOGNOTICE)
                     hard_close()
                     conn = None
                 elif bytes_remaining > 0:
                     pass
                 else:
                     # this should never happen
-                    xbmc.log("CloudLink disconnecting due to error in sizing", level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward disconnecting due to error in sizing", level=xbmc.LOGNOTICE)
                     hard_close()
 
         if state == 'message':
@@ -243,15 +263,15 @@ if __name__ == '__main__':
                     pass
                 else:
                     # failed receive
-                    xbmc.log("CloudLink exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
                     hard_close()
             else:
                 # on successful receive
                 if bytes_remaining < 0:
-                    xbmc.log("CloudLink incorrect message size", level=xbmc.LOGWARNING)
+                    xbmc.log("Media Steward incorrect message size", level=xbmc.LOGWARNING)
                     hard_close()
                 elif bytes_remaining == 0:
-                    xbmc.log("CloudLink received message", level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward received message", level=xbmc.LOGNOTICE)
                     packets_remaining -= 1
                     if packets_remaining <= 0:
                         state = 'processing'
@@ -259,47 +279,68 @@ if __name__ == '__main__':
                         state = 'sizing'
                     bytes_remaining = 4
                 elif len(receive_buffer) == 0:
-                    xbmc.log("CloudLink disconnecting gracefully", level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward disconnecting gracefully", level=xbmc.LOGNOTICE)
                     soft_close()
                 elif bytes_remaining > 0:
                     pass
                 else:
-                    xbmc.log("CloudLink disconnecting due to error in message", level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward disconnecting due to error in message", level=xbmc.LOGNOTICE)
                     hard_close()
 
         if state == 'processing':
             if control_message_flag:
                 response = json.loads(zlib.decompress(data).decode('utf-8'))
-                xbmc.log("CloudLink received announce %s" % response, level=xbmc.LOGNOTICE)
+                xbmc.log("Media Steward received announce %s" % response, level=xbmc.LOGNOTICE)
                 if 'valid-version' not in response or not response['valid-version']:
-                    xbmc.log("CloudLink disconnecting due to error in message", level=xbmc.LOGERROR)
+                    xbmc.log("Media Steward disconnecting due to error in message", level=xbmc.LOGERROR)
                     toast = xbmcgui.Dialog()
-                    toast.notification("CloudLink", "Outdated addon version. Please update.",
+                    # "Outdated addon version. Please update."
+                    toast.notification("Media Steward", addon.getLocalizedString(983032),
                                        icon=xbmcgui.NOTIFICATION_ERROR)
                     break  # ends the main loop
                 if 'valid-uuid' not in response or not response['valid-uuid']:
-                    xbmc.log("CloudLink disconnecting due to error in message", level=xbmc.LOGERROR)
+                    xbmc.log("Media Steward disconnecting due to error in message", level=xbmc.LOGERROR)
                     toast = xbmcgui.Dialog()
-                    toast.notification("CloudLink", "Invalid UUID. Please change settings.",
+                    # "Invalid UUID. Please change settings."
+                    toast.notification("Media Steward", addon.getLocalizedString(983033),
                                        icon=xbmcgui.NOTIFICATION_ERROR)
-                    break  # ends the main loop
+                    data = b''
+                    state = 'uuid'
                 data = b''
                 state = 'idle'
             else:
                 try:
                     response = xbmc.executeJSONRPC(zlib.decompress(data))
-                    xbmc.log("CloudLink sending %s" % response, level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward sending %s" % response, level=xbmc.LOGNOTICE)
                     send(response)
                 except socket.error as err:
-                    xbmc.log("CloudLink exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
                     hard_close()
                 else:
                     data = b''
                     state = 'idle'
 
         if state == 'disconnected':
-            monitor.waitForAbort(wait_seconds)
+            if monitor.waitForAbort(IDLE_SECONDS):
+                soft_close()
+                break
+            if time.time() - start > wait_seconds:
+                state = 'connect'
+        elif state == 'uuid':
+            if monitor.waitForAbort(IDLE_SECONDS):
+                soft_close()
+                break
+
+        if time.time() > last_reconnect_check > RECONNECT_CHECK_SECONDS:
+            last_reconnect_check = time.time()
+            if xbmcaddon.Addon().getSetting('reconnect') == 'true':
+                toast = xbmcgui.Dialog()
+                toast.notification("Media Steward", addon.getLocalizedString(983034))  # "Reconnecting..."
+                xbmcaddon.Addon().setSetting('reconnect', 'false')
+                if not state == 'disconnected':
+                    soft_close()
+                state = 'connect'
 
     # end the service
-    xbmc.log("CloudLink exiting", level=xbmc.LOGNOTICE)
+    xbmc.log("Media Steward exiting", level=xbmc.LOGNOTICE)
     hard_close()
