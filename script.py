@@ -26,7 +26,7 @@ import xbmcaddon
 
 CANCEL_CHECK_LOOP_PERIOD = 0.2
 CODE_CHECK_LOOP_ITERATIONS = 25
-BASE_URL = "https://media.ruschmann.net"
+BASE_URL = "https://stew.ruschmann.net"
 
 toaster = xbmcgui.Dialog()
 addon = xbmcaddon.Addon()
