@@ -3,5 +3,6 @@
 <category label="983000">
     <setting label="983001" id="uuid" type="action" action="RunScript(script.service.mediasteward, getuuid)" default="" />
     <setting label="983002" id="ssl-validation" type="bool" default="true" />
+    <setting label="983003" id="hide-connection" type="bool" default="false" />
 </category>
 </settings>

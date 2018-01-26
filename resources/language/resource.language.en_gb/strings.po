@@ -36,6 +36,11 @@ msgctxt "#983002"
 msgid "SSL Certification Validation"
 msgstr ""
 
+#: addons/script.service.mediasteward/resources/settings.xml
+msgctxt "#983003"
+msgid "Hide notifications for connection issues"
+msgstr ""
+
 #: addons/script.service.mediasteward/script.py
 msgctxt "#983010"
 msgid "Unable to connect to server"

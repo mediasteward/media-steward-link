@@ -127,9 +127,11 @@ if __name__ == '__main__':
                         # on failed connection
                         if tries % CONSECUTIVE_RETRIES == 0:
                             wait = str(int(round(LONG_WAIT_SECONDS / 60)))
-                            text = Template(addon.getLocalizedString(983030)).safe_substitute(host=TCP_HOST, wait=wait)
-                            toast = xbmcgui.Dialog()
-                            toast.notification("Media Steward", text, icon=xbmcgui.NOTIFICATION_WARNING)
+                            if not addon.getSetting('hide-connection'):
+                                text = Template(addon.getLocalizedString(983030)).safe_substitute(host=TCP_HOST,
+                                                                                                  wait=wait)
+                                toast = xbmcgui.Dialog()
+                                toast.notification("Media Steward", text, icon=xbmcgui.NOTIFICATION_WARNING)
                             wait_seconds = LONG_WAIT_SECONDS
                         else:
                             wait_seconds = SHORT_WAIT_SECONDS
@@ -334,8 +336,9 @@ if __name__ == '__main__':
         if time.time() > last_reconnect_check > RECONNECT_CHECK_SECONDS:
             last_reconnect_check = time.time()
             if xbmcaddon.Addon().getSetting('reconnect') == 'true':
-                toast = xbmcgui.Dialog()
-                toast.notification("Media Steward", addon.getLocalizedString(983034))  # "Reconnecting..."
+                if not addon.getSetting('hide-connection'):
+                    toast = xbmcgui.Dialog()
+                    toast.notification("Media Steward", addon.getLocalizedString(983034))  # "Reconnecting..."
                 xbmcaddon.Addon().setSetting('reconnect', 'false')
                 if not state == 'disconnected':
                     soft_close()
