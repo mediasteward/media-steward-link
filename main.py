@@ -152,7 +152,7 @@ if __name__ == '__main__':
                         # on failed connection
                         if not short_retry:
                             wait = str(int(round(LONG_WAIT_SECONDS / 60)))
-                            if not addon.getSetting('hide-connection') == 'false':
+                            if addon.getSetting('hide-connection') == 'false':
                                 text = Template(addon.getLocalizedString(983030)).safe_substitute(host=TCP_HOST,
                                                                                                   wait=wait)
                                 toast = xbmcgui.Dialog()
@@ -395,7 +395,7 @@ if __name__ == '__main__':
             last_reconnect_check = time.time()
             if xbmcaddon.Addon().getSetting('reconnect') == 'true':
                 xbmc.log("Media Steward reconnecting for settings change", level=xbmc.LOGNOTICE)
-                if not addon.getSetting('hide-connection') == 'false':
+                if addon.getSetting('hide-connection') == 'false':
                     toast = xbmcgui.Dialog()
                     toast.notification("Media Steward", addon.getLocalizedString(983034))  # "Reconnecting..."
                 xbmcaddon.Addon().setSetting('reconnect', 'false')
