@@ -197,7 +197,7 @@ if __name__ == '__main__':
                     pass
                 else:
                     xbmc.log("Media Steward SSL exception in 'idle': %s,disconnecting" % str(err), level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
             except socket.error as err:
                 if err.errno == errno.EAGAIN:
                     # no bytes to receive now, continue
@@ -205,7 +205,7 @@ if __name__ == '__main__':
                 else:
                     # failed receive
                     xbmc.log("Media Steward exception in 'idle': %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
             else:
                 # on successful receive
                 if bytes_remaining < 0:
@@ -239,7 +239,7 @@ if __name__ == '__main__':
                 else:
                     # this should never happen
                     xbmc.log("Media Steward disconnecting due to error in number of packets", level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
 
         if state == 'sizing':
             try:
@@ -259,7 +259,7 @@ if __name__ == '__main__':
                 else:
                     xbmc.log("Media Steward SSL exception in 'sizing': %s, disconnecting" % str(err),
                              level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
             except socket.error as err:
                 if err.errno == errno.EAGAIN:
                     # no bytes to receive now, continue
@@ -267,7 +267,7 @@ if __name__ == '__main__':
                 else:
                     # failed receive
                     xbmc.log("Media Steward exception in 'sizing': %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
             else:
                 # on successful receive
                 if bytes_remaining < 0:
@@ -286,14 +286,14 @@ if __name__ == '__main__':
                 elif len(receive_buffer) == 0:
                     # disconnect signal from the other end
                     xbmc.log("Media Steward disconnecting gracefully", level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
                     conn = None
                 elif bytes_remaining > 0:
                     pass
                 else:
                     # this should never happen
                     xbmc.log("Media Steward disconnecting due to error in sizing", level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
 
         if state == 'message':
             try:
@@ -313,7 +313,7 @@ if __name__ == '__main__':
                 else:
                     xbmc.log("Media Steward SSL exception in 'message': %s, disconnecting" % str(err),
                              level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
             except socket.error as err:
                 if err.errno == errno.EAGAIN:
                     # no bytes to receive now, continue
@@ -321,12 +321,12 @@ if __name__ == '__main__':
                 else:
                     # failed receive
                     xbmc.log("Media Steward exception in 'message': %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
             else:
                 # on successful receive
                 if bytes_remaining < 0:
                     xbmc.log("Media Steward incorrect message size", level=xbmc.LOGWARNING)
-                    hard_close()
+                    soft_close()
                 elif bytes_remaining == 0:
                     xbmc.log("Media Steward received message", level=xbmc.LOGNOTICE)
                     packets_remaining -= 1
@@ -342,29 +342,32 @@ if __name__ == '__main__':
                     pass
                 else:
                     xbmc.log("Media Steward disconnecting due to error in message", level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
 
         if state == 'processing':
             if control_message_flag:
                 response = json.loads(zlib.decompress(data).decode('utf-8'))
                 xbmc.log("Media Steward received announce %s" % response, level=xbmc.LOGNOTICE)
                 if 'valid-version' not in response or not response['valid-version']:
-                    xbmc.log("Media Steward disconnecting due to error in message", level=xbmc.LOGERROR)
+                    xbmc.log("Media Steward disconnecting due to invalid version", level=xbmc.LOGERROR)
                     toast = xbmcgui.Dialog()
                     # "Outdated addon version. Please update."
                     toast.notification("Media Steward", addon.getLocalizedString(983032),
                                        icon=xbmcgui.NOTIFICATION_ERROR)
-                    break  # ends the main loop
-                if 'valid-uuid' not in response or not response['valid-uuid']:
-                    xbmc.log("Media Steward disconnecting due to error in message", level=xbmc.LOGERROR)
+                    soft_close()
+                    break  # ends the main loop, user must upgrade and restart
+                elif 'valid-uuid' not in response or not response['valid-uuid']:
+                    xbmc.log("Media Steward disconnecting due to invalid uuid", level=xbmc.LOGERROR)
                     toast = xbmcgui.Dialog()
                     # "Invalid UUID. Please change settings."
                     toast.notification("Media Steward", addon.getLocalizedString(983033),
                                        icon=xbmcgui.NOTIFICATION_ERROR)
                     data = b''
+                    soft_close()
                     state = 'uuid'
-                data = b''
-                state = 'idle'
+                else:
+                    data = b''
+                    state = 'idle'
             else:
                 try:
                     response = xbmc.executeJSONRPC(zlib.decompress(data))
@@ -372,33 +375,31 @@ if __name__ == '__main__':
                     send(response)
                 except socket.error as err:
                     xbmc.log("Media Steward exception 'processing': %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
-                    hard_close()
+                    soft_close()
                 else:
                     data = b''
                     state = 'idle'
 
         if state == 'disconnected':
             if monitor.waitForAbort(IDLE_SECONDS):
-                soft_close()
                 break
             if time.time() - start > wait_seconds:
                 state = 'connect'
         elif state == 'uuid':
             if monitor.waitForAbort(IDLE_SECONDS):
-                soft_close()
                 break
 
-        if time.time() > last_reconnect_check > RECONNECT_CHECK_SECONDS:
+        if time.time() > last_reconnect_check + RECONNECT_CHECK_SECONDS:
             last_reconnect_check = time.time()
             if xbmcaddon.Addon().getSetting('reconnect') == 'true':
+                xbmc.log("Media Steward reconnecting for settings change", level=xbmc.LOGNOTICE)
                 if not addon.getSetting('hide-connection'):
                     toast = xbmcgui.Dialog()
                     toast.notification("Media Steward", addon.getLocalizedString(983034))  # "Reconnecting..."
                 xbmcaddon.Addon().setSetting('reconnect', 'false')
-                if not state == 'disconnected':
-                    soft_close()
+                soft_close()  # does nothing if disconnected already
                 state = 'connect'
 
     # end the service
     xbmc.log("Media Steward exiting", level=xbmc.LOGNOTICE)
-    hard_close()
+    soft_close()
