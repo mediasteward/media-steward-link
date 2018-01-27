@@ -34,11 +34,10 @@ import xbmcaddon
 TCP_HOST = 'localhost'
 TCP_PORT = 59348
 
-CONSECUTIVE_RETRIES = 3
-SHORT_WAIT_SECONDS = 60
-LONG_WAIT_SECONDS = 300
+SHORT_WAIT_SECONDS = 10.0
+LONG_WAIT_SECONDS = 60.0
 IDLE_SECONDS = 1.0
-RECONNECT_CHECK_SECONDS = 10.0
+RECONNECT_CHECK_SECONDS = 5.0
 
 # parameters shared with the server
 MAX_NUMBER_OF_PACKETS = 32767
@@ -112,7 +111,7 @@ if __name__ == '__main__':
     bytes_remaining = 0
     packets_remaining = 0
     control_message_flag = False
-    tries = 0
+    short_retry = False  # only do a short retry when previously connected
     state = 'connect'
     context = ssl.create_default_context()
 
@@ -138,7 +137,6 @@ if __name__ == '__main__':
                 conn = context.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM),
                                            server_hostname=TCP_HOST)
                 xbmc.log("Media Steward connecting to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
-                tries += 1
                 try:
                     conn.connect((TCP_HOST, TCP_PORT))
                 except socket.error as err:
@@ -148,10 +146,11 @@ if __name__ == '__main__':
                         conn.settimeout(IDLE_SECONDS)
                         state = 'idle'
                         bytes_remaining = 4
-                        tries = 0
+                        short_retry = True
                     else:
+                        short_retry = False  # do not short retry again until connected
                         # on failed connection
-                        if tries % CONSECUTIVE_RETRIES == 0:
+                        if not short_retry:
                             wait = str(int(round(LONG_WAIT_SECONDS / 60)))
                             if not addon.getSetting('hide-connection') == 'false':
                                 text = Template(addon.getLocalizedString(983030)).safe_substitute(host=TCP_HOST,
@@ -161,8 +160,8 @@ if __name__ == '__main__':
                             wait_seconds = LONG_WAIT_SECONDS
                         else:
                             wait_seconds = SHORT_WAIT_SECONDS
-                        xbmc.log("Media Steward connection failed: errno=%d. Connection failed %d consecutive times, "
-                                 "waiting %d seconds before trying again" % (err.errno, tries, wait_seconds),
+                        xbmc.log("Media Steward connection failed: errno=%d. Connection failed, "
+                                 "waiting %d seconds before trying again" % (err.errno, wait_seconds),
                                  level=xbmc.LOGNOTICE)
                         # start a new connection just in case the existing socket is bad
                         hard_close()
@@ -176,7 +175,7 @@ if __name__ == '__main__':
                     send(json.dumps(announce).encode('utf-8'), message_id=-1)
                     state = 'idle'
                     bytes_remaining = 4
-                    tries = 0
+                    short_retry = True
             else:
                 state = 'uuid'
                 toast = xbmcgui.Dialog()
