@@ -17,6 +17,8 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import socket
+import ssl
+import select
 import struct
 import errno
 import zlib
@@ -29,7 +31,7 @@ import xbmc
 import xbmcgui
 import xbmcaddon
 
-TCP_HOST = '127.0.0.1'
+TCP_HOST = 'localhost'
 TCP_PORT = 59348
 
 CONSECUTIVE_RETRIES = 3
@@ -46,22 +48,39 @@ MAX_MESSAGE_SIZE = 2100000000
 def send(message, message_id=0):
     global conn
     compressed_message = zlib.compress(message)
-    if message_id < 0:
-        num_packets = 1
-        conn.send(struct.pack('>l', message_id))
-    else:
-        num_packets = int(math.ceil(float(len(compressed_message)) / float(MAX_MESSAGE_SIZE)))
-        conn.send(struct.pack('>l', 1))
-    for pkt in range(0, num_packets):
-        if pkt + 1 < num_packets:
-            conn.send(struct.pack('>l', MAX_MESSAGE_SIZE))
-            first = pkt * MAX_MESSAGE_SIZE
-            last = (pkt + 1) * MAX_MESSAGE_SIZE
-        else:
-            conn.send(struct.pack('>l', len(compressed_message)))
-            first = 0
-            last = len(compressed_message)
-        conn.send(compressed_message[first:last])
+    sent = 'none'
+    pkt = 0
+    first = 0
+    last = 0
+    while not sent == 'done':
+        try:
+            if sent == 'none':
+                if message_id < 0:
+                    num_packets = 1
+                    conn.send(struct.pack('>l', message_id))
+                else:
+                    num_packets = int(math.ceil(float(len(compressed_message)) / float(MAX_MESSAGE_SIZE)))
+                    conn.send(struct.pack('>l', 1))
+                sent = 'id'
+            for pkt in range(pkt, num_packets):
+                if sent == 'id':
+                    if pkt + 1 < num_packets:
+                        conn.send(struct.pack('>l', MAX_MESSAGE_SIZE))
+                        first = pkt * MAX_MESSAGE_SIZE
+                        last = (pkt + 1) * MAX_MESSAGE_SIZE
+                    else:
+                        conn.send(struct.pack('>l', len(compressed_message)))
+                        first = 0
+                        last = len(compressed_message)
+                    sent = 'size'
+                if sent == 'size':
+                    conn.send(compressed_message[first:last])
+                    sent = 'id'
+            sent = 'done'
+        except ssl.SSLWantReadError:
+            select.select([conn], [], [], IDLE_SECONDS)
+        except ssl.SSLWantWriteError:
+            select.select([], [conn], [], IDLE_SECONDS)
 
 
 def soft_close():
@@ -92,6 +111,7 @@ if __name__ == '__main__':
     control_message_flag = False
     tries = 0
     state = 'connect'
+    context = ssl.create_default_context()
 
     # defaults to make PEP8 happy
     wait_seconds = SHORT_WAIT_SECONDS
@@ -108,9 +128,12 @@ if __name__ == '__main__':
                 # TODO do not use blocking socket during connect
                 # attempt to connect
                 err_no = -1234567890
-                if conn is None:
-                    # create a socket if None exists
-                    conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                # create a new socket
+                if not addon.getSetting('ssl-validation'):
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+                conn = context.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM),
+                                           server_hostname=TCP_HOST)
                 xbmc.log("Media Steward connecting to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
                 tries += 1
                 try:
@@ -163,15 +186,25 @@ if __name__ == '__main__':
                 receive_buffer = conn.recv(bytes_remaining)
                 header += receive_buffer
                 bytes_remaining -= len(receive_buffer)
+            except ssl.SSLWantReadError:
+                select.select([conn], [], [], IDLE_SECONDS)
+            except ssl.SSLWantWriteError:
+                select.select([], [conn], [], IDLE_SECONDS)
             except socket.timeout:
                 pass
+            except ssl.SSLError as err:
+                if err.message == 'The read operation timed out':
+                    pass
+                else:
+                    xbmc.log("Media Steward SSL exception in 'idle': %s,disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    hard_close()
             except socket.error as err:
                 if err.errno == errno.EAGAIN:
                     # no bytes to receive now, continue
                     pass
                 else:
                     # failed receive
-                    xbmc.log("Media Steward exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward exception in 'idle': %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
                     hard_close()
             else:
                 # on successful receive
@@ -214,15 +247,26 @@ if __name__ == '__main__':
                 receive_buffer = conn.recv(bytes_remaining)
                 header += receive_buffer
                 bytes_remaining -= len(receive_buffer)
+            except ssl.SSLWantReadError:
+                select.select([conn], [], [], IDLE_SECONDS)
+            except ssl.SSLWantWriteError:
+                select.select([], [conn], [], IDLE_SECONDS)
             except socket.timeout:
                 pass
+            except ssl.SSLError as err:
+                if err.message == 'The read operation timed out':
+                    pass
+                else:
+                    xbmc.log("Media Steward SSL exception in 'sizing': %s, disconnecting" % str(err),
+                             level=xbmc.LOGNOTICE)
+                    hard_close()
             except socket.error as err:
                 if err.errno == errno.EAGAIN:
                     # no bytes to receive now, continue
                     pass
                 else:
                     # failed receive
-                    xbmc.log("Media Steward exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward exception in 'sizing': %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
                     hard_close()
             else:
                 # on successful receive
@@ -257,15 +301,26 @@ if __name__ == '__main__':
                 receive_buffer = conn.recv(bytes_remaining)
                 data += receive_buffer
                 bytes_remaining -= len(receive_buffer)
+            except ssl.SSLWantReadError:
+                select.select([conn], [], [], IDLE_SECONDS)
+            except ssl.SSLWantWriteError:
+                select.select([], [conn], [], IDLE_SECONDS)
             except socket.timeout:
                 pass
+            except ssl.SSLError as err:
+                if err.message == 'The read operation timed out':
+                    pass
+                else:
+                    xbmc.log("Media Steward SSL exception in 'message': %s, disconnecting" % str(err),
+                             level=xbmc.LOGNOTICE)
+                    hard_close()
             except socket.error as err:
                 if err.errno == errno.EAGAIN:
                     # no bytes to receive now, continue
                     pass
                 else:
                     # failed receive
-                    xbmc.log("Media Steward exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward exception in 'message': %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
                     hard_close()
             else:
                 # on successful receive
@@ -316,7 +371,7 @@ if __name__ == '__main__':
                     xbmc.log("Media Steward sending %s" % response, level=xbmc.LOGNOTICE)
                     send(response)
                 except socket.error as err:
-                    xbmc.log("Media Steward exception: %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    xbmc.log("Media Steward exception 'processing': %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
                     hard_close()
                 else:
                     data = b''
