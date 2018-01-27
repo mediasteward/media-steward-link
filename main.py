@@ -87,8 +87,10 @@ def send(message, message_id=0):
 def soft_close():
     global conn, state
     if conn is not None:
-        xbmc.log("Media Steward soft disconnect", level=xbmc.LOGDEBUG)
-        conn.shutdown(socket.SHUT_RDWR)
+        try:
+            conn.shutdown(socket.SHUT_RDWR)
+        except Exception as e:
+            xbmc.log("Media Steward shutdown failed: %s" % str(e), level=xbmc.LOGDEBUG)
     hard_close()
 
 
