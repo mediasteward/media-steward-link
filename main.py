@@ -26,6 +26,7 @@ import json
 import math
 import time
 from string import Template
+import msgs
 
 import xbmc
 import xbmcgui
@@ -38,10 +39,6 @@ SHORT_WAIT_SECONDS = 10.0
 LONG_WAIT_SECONDS = 60.0
 IDLE_SECONDS = 1.0
 RECONNECT_CHECK_SECONDS = 5.0
-
-# parameters shared with the server
-MAX_NUMBER_OF_PACKETS = 32767
-MAX_MESSAGE_SIZE = 2100000000
 
 
 def send(message, message_id=0):
@@ -59,15 +56,15 @@ def send(message, message_id=0):
                     num_packets = 1
                     conn.send(struct.pack('>l', message_id))
                 else:
-                    num_packets = int(math.ceil(float(len(compressed_message)) / float(MAX_MESSAGE_SIZE)))
+                    num_packets = int(math.ceil(float(len(compressed_message)) / float(msgs.MAX_MESSAGE_SIZE)))
                     conn.send(struct.pack('>l', 1))
                 sent = 'id'
             for pkt in range(pkt, num_packets):
                 if sent == 'id':
                     if pkt + 1 < num_packets:
-                        conn.send(struct.pack('>l', MAX_MESSAGE_SIZE))
-                        first = pkt * MAX_MESSAGE_SIZE
-                        last = (pkt + 1) * MAX_MESSAGE_SIZE
+                        conn.send(struct.pack('>l', msgs.MAX_MESSAGE_SIZE))
+                        first = pkt * msgs.MAX_MESSAGE_SIZE
+                        last = (pkt + 1) * msgs.MAX_MESSAGE_SIZE
                     else:
                         conn.send(struct.pack('>l', len(compressed_message)))
                         first = 0
@@ -172,7 +169,7 @@ if __name__ == '__main__':
                     xbmc.log("Media Steward connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
                     conn.settimeout(IDLE_SECONDS)
                     announce = {'version': addon.getAddonInfo('version'), 'uuid': uuid}
-                    send(json.dumps(announce).encode('utf-8'), message_id=-1)
+                    send(json.dumps(announce).encode('utf-8'), message_id=msgs.MSG_ID_ANNOUNCE)
                     state = 'idle'
                     bytes_remaining = 4
                     short_retry = True
@@ -220,12 +217,12 @@ if __name__ == '__main__':
                     xbmc.log("Media Steward received number of packets %d" % packets_remaining, level=xbmc.LOGNOTICE)
                     header = b''
                     bytes_remaining = 4
-                    if packets_remaining == -1:
+                    if packets_remaining == msgs.MSG_ID_VERIFICATION:
                         # this is a control message
                         packets_remaining = 1
                         control_message_flag = True
                         state = 'sizing'
-                    elif packets_remaining > MAX_NUMBER_OF_PACKETS or packets_remaining < 1:
+                    elif packets_remaining > msgs.MAX_NUMBER_OF_PACKETS or packets_remaining < 1:
                         # this should not happen, something has gone wrong
                         soft_close()
                     else:
@@ -281,7 +278,7 @@ if __name__ == '__main__':
                     bytes_remaining = struct.unpack('>l', header)[0]
                     xbmc.log("Media Steward received number of bytes %d" % bytes_remaining, level=xbmc.LOGNOTICE)
                     header = b''
-                    if bytes_remaining < 1 or bytes_remaining > MAX_MESSAGE_SIZE:
+                    if bytes_remaining < 1 or bytes_remaining > msgs.MAX_MESSAGE_SIZE:
                         soft_close()
                     else:
                         state = 'message'
