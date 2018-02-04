@@ -74,6 +74,10 @@ def send(message, message_id=0):
                     conn.send(compressed_message[first:last])
                     sent = 'id'
             sent = 'done'
+        except socket.error as exception:
+            # failed send
+            xbmc.log("Media Steward exception in send(): %s, disconnecting" % str(exception), level=xbmc.LOGNOTICE)
+            soft_close()
         except ssl.SSLWantReadError:
             select.select([conn], [], [], IDLE_SECONDS)
         except ssl.SSLWantWriteError:
@@ -137,17 +141,23 @@ if __name__ == '__main__':
                 try:
                     conn.connect((TCP_HOST, TCP_PORT))
                 except ssl.CertificateError as err:
-                    xbmc.log("Media Steward certificate error %s" % str(err), level=xbmc.LOGERROR)
+                    xbmc.log("Media Steward cert error: %s, will retry in %d seconds" % (str(err), LONG_WAIT_SECONDS),
+                             level=xbmc.LOGERROR)
                     if addon.getSetting('hide-connection') == 'false':
-                        text = Template(addon.getLocalizedString(983035)).safe_substitute(host=TCP_HOST)
                         toast = xbmcgui.Dialog()
-                        toast.notification("Media Steward", text, icon=xbmcgui.NOTIFICATION_ERROR)
+                        toast.notification("Media Steward", str(err), icon=xbmcgui.NOTIFICATION_ERROR)
+                    wait_seconds = LONG_WAIT_SECONDS
+                    soft_close()
+                    start = time.time()
                 except ssl.SSLError as err:
-                    xbmc.log("Media Steward unexpected ssl error %s" % str(err), level=xbmc.LOGERROR)
+                    xbmc.log("Media Steward ssl error: %s, will retry in %d seconds" % (str(err), LONG_WAIT_SECONDS),
+                             level=xbmc.LOGERROR)
                     if addon.getSetting('hide-connection') == 'false':
-                        text = Template(addon.getLocalizedString(983036))
                         toast = xbmcgui.Dialog()
-                        toast.notification("Media Steward", text, icon=xbmcgui.NOTIFICATION_ERROR)
+                        toast.notification("Media Steward", str(err), icon=xbmcgui.NOTIFICATION_ERROR)
+                    wait_seconds = LONG_WAIT_SECONDS
+                    soft_close()
+                    start = time.time()
                 except socket.error as err:
                     if err.errno == errno.EISCONN:
                         # this should not happen, but handle it if it does
@@ -174,7 +184,6 @@ if __name__ == '__main__':
                                  level=xbmc.LOGNOTICE)
                         # start a new connection just in case the existing socket is bad
                         hard_close()
-                        state = 'disconnected'
                         start = time.time()
                 else:
                     # on successful connection
