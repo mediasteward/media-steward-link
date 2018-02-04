@@ -32,7 +32,7 @@ import xbmc
 import xbmcgui
 import xbmcaddon
 
-TCP_HOST = 'localhost'
+TCP_HOST = 'stew.ruschmann.net'
 TCP_PORT = 59348
 
 SHORT_WAIT_SECONDS = 10.0
@@ -136,6 +136,18 @@ if __name__ == '__main__':
                 xbmc.log("Media Steward connecting to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
                 try:
                     conn.connect((TCP_HOST, TCP_PORT))
+                except ssl.CertificateError as err:
+                    xbmc.log("Media Steward certificate error %s" % str(err), level=xbmc.LOGERROR)
+                    if addon.getSetting('hide-connection') == 'false':
+                        text = Template(addon.getLocalizedString(983035)).safe_substitute(host=TCP_HOST)
+                        toast = xbmcgui.Dialog()
+                        toast.notification("Media Steward", text, icon=xbmcgui.NOTIFICATION_ERROR)
+                except ssl.SSLError as err:
+                    xbmc.log("Media Steward unexpected ssl error %s" % str(err), level=xbmc.LOGERROR)
+                    if addon.getSetting('hide-connection') == 'false':
+                        text = Template(addon.getLocalizedString(983036))
+                        toast = xbmcgui.Dialog()
+                        toast.notification("Media Steward", text, icon=xbmcgui.NOTIFICATION_ERROR)
                 except socket.error as err:
                     if err.errno == errno.EISCONN:
                         # this should not happen, but handle it if it does

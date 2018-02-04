@@ -135,3 +135,13 @@ msgstr ""
 msgctxt "#983034"
 msgid "Reconnecting..."
 msgstr ""
+
+#: addons/script.service.mediasteward/main.py
+msgctxt "#983035"
+msgid "Certificate validation failed for ${host}"
+msgstr ""
+
+#: addons/script.service.mediasteward/main.py
+msgctxt "#983036"
+msgid "Unexpected SSL error"
+msgstr ""
