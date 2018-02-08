@@ -74,14 +74,14 @@ def send(message, message_id=0):
                     conn.send(compressed_message[first:last])
                     sent = 'id'
             sent = 'done'
-        except socket.error as exception:
-            # failed send
-            xbmc.log("Media Steward exception in send(): %s, disconnecting" % str(exception), level=xbmc.LOGNOTICE)
-            soft_close()
         except ssl.SSLWantReadError:
             select.select([conn], [], [], IDLE_SECONDS)
         except ssl.SSLWantWriteError:
             select.select([], [conn], [], IDLE_SECONDS)
+        except socket.error as exception:
+            # failed send
+            xbmc.log("Media Steward exception in send(): %s, disconnecting" % str(exception), level=xbmc.LOGNOTICE)
+            soft_close()
 
 
 def soft_close():
