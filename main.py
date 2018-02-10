@@ -78,10 +78,6 @@ def send(message, message_id=0):
             select.select([conn], [], [], IDLE_SECONDS)
         except ssl.SSLWantWriteError:
             select.select([], [conn], [], IDLE_SECONDS)
-        except socket.error as exception:
-            # failed send
-            xbmc.log("Media Steward exception in send(): %s, disconnecting" % str(exception), level=xbmc.LOGNOTICE)
-            soft_close()
 
 
 def soft_close():
@@ -186,14 +182,20 @@ if __name__ == '__main__':
                         hard_close()
                         start = time.time()
                 else:
-                    # on successful connection
-                    xbmc.log("Media Steward connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
-                    conn.settimeout(IDLE_SECONDS)
-                    announce = {'version': addon.getAddonInfo('version'), 'uuid': uuid}
-                    send(json.dumps(announce).encode('utf-8'), message_id=msgs.MSG_ID_ANNOUNCE)
-                    state = 'idle'
-                    bytes_remaining = 4
-                    short_retry = True
+                    try:
+                        # on successful connection
+                        xbmc.log("Media Steward connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
+                        conn.settimeout(IDLE_SECONDS)
+                        announce = {'version': addon.getAddonInfo('version'), 'uuid': uuid}
+                        send(json.dumps(announce).encode('utf-8'), message_id=msgs.MSG_ID_ANNOUNCE)
+                    except socket.error as err:
+                        xbmc.log("Media Steward exception 'sending announce': %s, disconnecting" % str(err),
+                                 level=xbmc.LOGNOTICE)
+                        soft_close()
+                    else:
+                        state = 'idle'
+                        bytes_remaining = 4
+                        short_retry = True
             else:
                 state = 'uuid'
                 toast = xbmcgui.Dialog()
