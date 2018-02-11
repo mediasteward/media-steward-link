@@ -41,37 +41,45 @@ IDLE_SECONDS = 1.0
 RECONNECT_CHECK_SECONDS = 5.0
 
 
-def send(message, message_id=0):
+def send_raw_data(raw_data):
     global conn
+    total_sent = 0
+    while total_sent < len(raw_data):
+        sent = conn.send(raw_data[total_sent:])
+        if sent == 0:
+            RuntimeError("socket disconnected during send")
+        total_sent += sent
+
+
+def send(message, message_id=0):
     compressed_message = zlib.compress(message)
     sent = 'none'
     pkt = 0
     first = 0
     last = 0
-    # TODO check for close
     while not sent == 'done':
         try:
             if sent == 'none':
                 if message_id < 0:
                     num_packets = 1
-                    conn.send(struct.pack('>l', message_id))
+                    send_raw_data(struct.pack('>l', message_id))
                 else:
                     num_packets = int(math.ceil(float(len(compressed_message)) / float(msgs.MAX_MESSAGE_SIZE)))
-                    conn.send(struct.pack('>l', 1))
+                    send_raw_data(struct.pack('>l', 1))
                 sent = 'id'
             for pkt in range(pkt, num_packets):
                 if sent == 'id':
                     if pkt + 1 < num_packets:
-                        conn.send(struct.pack('>l', msgs.MAX_MESSAGE_SIZE))
+                        send_raw_data(struct.pack('>l', msgs.MAX_MESSAGE_SIZE))
                         first = pkt * msgs.MAX_MESSAGE_SIZE
                         last = (pkt + 1) * msgs.MAX_MESSAGE_SIZE
                     else:
-                        conn.send(struct.pack('>l', len(compressed_message)))
+                        send_raw_data(struct.pack('>l', len(compressed_message)))
                         first = 0
                         last = len(compressed_message)
                     sent = 'size'
                 if sent == 'size':
-                    conn.send(compressed_message[first:last])
+                    send_raw_data(compressed_message[first:last])
                     sent = 'id'
             sent = 'done'
         except ssl.SSLWantReadError:
@@ -189,6 +197,10 @@ if __name__ == '__main__':
                         announce = {'version': addon.getAddonInfo('version'), 'uuid': uuid}
                         send(json.dumps(announce).encode('utf-8'), message_id=msgs.MSG_ID_ANNOUNCE)
                     except socket.error as err:
+                        xbmc.log("Media Steward exception 'sending announce': %s, disconnecting" % str(err),
+                                 level=xbmc.LOGNOTICE)
+                        soft_close()
+                    except RuntimeError as err:
                         xbmc.log("Media Steward exception 'sending announce': %s, disconnecting" % str(err),
                                  level=xbmc.LOGNOTICE)
                         soft_close()
@@ -397,6 +409,12 @@ if __name__ == '__main__':
                     send(response)
                 except socket.error as err:
                     xbmc.log("Media Steward exception 'processing': %s, disconnecting" % str(err), level=xbmc.LOGNOTICE)
+                    data = b''
+                    soft_close()
+                except RuntimeError as err:
+                    xbmc.log("Media Steward exception 'sending announce': %s, disconnecting" % str(err),
+                             level=xbmc.LOGNOTICE)
+                    data = b''
                     soft_close()
                 else:
                     data = b''
