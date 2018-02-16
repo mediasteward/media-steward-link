@@ -9,13 +9,13 @@
   </extension>
   <extension point="xbmc.addon.metadata">
     <summary lang="en_gb">Integrate Kodi with popular digital assistants</summary>
-    <description lang="en_gb">Connects to Media Steward's remote server (mediasteward.io), which forwards commands from Google Home or Alexa right to your Kodi. This link passes commands to and from the same JSON RPC API usually exposed by the web service.</description>
-    <disclaimer lang="en_gb">You must acquire an activation code from mediasteward.io.</disclaimer>
+    <description lang="en_gb">Connects to Media Steward's remote server (mediasteward.net), which forwards commands from Google Home or Alexa right to your Kodi. This link passes commands to and from the same JSON RPC API usually exposed by the web service.</description>
+    <disclaimer lang="en_gb">You must acquire an activation code from mediasteward.net.</disclaimer>
     <language></language>
     <platform>all</platform>
     <license>GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007</license>
     <forum></forum>
-    <website>https://mediasteward.io</website>
+    <website>https://mediasteward.net</website>
     <email>media_steward@ruschmann.net</email>
     <source></source>
     <news></news>
