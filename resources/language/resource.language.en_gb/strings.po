@@ -28,7 +28,7 @@ msgstr ""
 
 #: addons/script.service.mediasteward/resources/settings.xml
 msgctxt "#983001"
-msgid "UUID"
+msgid "Obtain UUID (required)"
 msgstr ""
 
 #: addons/script.service.mediasteward/resources/settings.xml

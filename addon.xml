@@ -8,9 +8,9 @@
     <provides>executable</provides>
   </extension>
   <extension point="xbmc.addon.metadata">
-    <summary lang="en_gb">Integrate Kodi with popular digital assistants</summary>
-    <description lang="en_gb">Connects to Media Steward's remote server (mediasteward.net), which forwards commands from Google Home or Alexa right to your Kodi. This link passes commands to and from the same JSON RPC API usually exposed by the web service.</description>
-    <disclaimer lang="en_gb">You must acquire an activation code from mediasteward.net.</disclaimer>
+    <summary lang="en_gb">Connect Kodi to popular digital assistants</summary>
+    <description lang="en_gb">Links Kodi to Media Steward's remote services (mediasteward.net), which allows you to command Kodi from your Google Home or Amazon Alexa. A comprehensive setup guide is available at mediasteward.net/setup. This link eliminates public exposure of Kodi's JSON RPC API by establishing a secure client connection to Media Steward's services.</description>
+    <disclaimer lang="en_gb">Configure your UUID by entering the activation code at mediasteward.net/activate (subscription required)</disclaimer>
     <language></language>
     <platform>all</platform>
     <license>GNU GENERAL PUBLIC LICENSE. Version 3, 29 June 2007</license>
