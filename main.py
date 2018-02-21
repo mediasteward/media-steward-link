@@ -32,7 +32,7 @@ import xbmc
 import xbmcgui
 import xbmcaddon
 
-TCP_HOST = 'stew.ruschmann.net'
+TCP_HOST = 'link.mediasteward.net'
 TCP_PORT = 59348
 
 SHORT_WAIT_SECONDS = 20.0
