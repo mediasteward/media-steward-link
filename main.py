@@ -88,6 +88,18 @@ def send(message, message_id=0):
             select.select([], [conn], [], IDLE_SECONDS)
 
 
+def receive(remaining):
+    try:
+        # check the number of packets
+        tmp_buffer = conn.recv(remaining)
+    except ssl.SSLWantReadError:
+        select.select([conn], [], [], IDLE_SECONDS)
+    except ssl.SSLWantWriteError:
+        select.select([], [conn], [], IDLE_SECONDS)
+    else:
+        return remaining - len(tmp_buffer), tmp_buffer
+
+
 def soft_close():
     global conn, state
     if conn is not None:
@@ -132,7 +144,6 @@ if __name__ == '__main__':
         if state == 'connect':
             uuid = addon.getSetting('uuid')
             if len(uuid) == 32 and uuid.isalnum():
-                # TODO do not use blocking socket during connect
                 # attempt to connect
                 err_no = -1234567890
                 # create a new socket
@@ -214,16 +225,11 @@ if __name__ == '__main__':
                 # "Please acquire valid UUID."
                 toast.notification("Media Steward", addon.getLocalizedString(983031), icon=xbmcgui.NOTIFICATION_ERROR)
 
-        if state == 'idle':
+        elif state == 'idle':
             try:
                 # check the number of packets
-                receive_buffer = conn.recv(bytes_remaining)
-                header += receive_buffer
-                bytes_remaining -= len(receive_buffer)
-            except ssl.SSLWantReadError:
-                select.select([conn], [], [], IDLE_SECONDS)
-            except ssl.SSLWantWriteError:
-                select.select([], [conn], [], IDLE_SECONDS)
+                bytes_remaining, data_buffer = receive(bytes_remaining)
+                header = header + data_buffer
             except socket.timeout:
                 pass
             except ssl.SSLError as err:
@@ -264,7 +270,7 @@ if __name__ == '__main__':
                         # request message
                         control_message_flag = False
                         state = 'sizing'
-                elif len(receive_buffer) == 0:
+                elif len(data_buffer) == 0:
                     # disconnect signal from the other end
                     xbmc.log("Media Steward disconnecting gracefully", level=xbmc.LOGNOTICE)
                     soft_close()
@@ -275,16 +281,11 @@ if __name__ == '__main__':
                     xbmc.log("Media Steward disconnecting due to error in number of packets", level=xbmc.LOGNOTICE)
                     soft_close()
 
-        if state == 'sizing':
+        elif state == 'sizing':
             try:
                 # check for size of message
-                receive_buffer = conn.recv(bytes_remaining)
-                header += receive_buffer
-                bytes_remaining -= len(receive_buffer)
-            except ssl.SSLWantReadError:
-                select.select([conn], [], [], IDLE_SECONDS)
-            except ssl.SSLWantWriteError:
-                select.select([], [conn], [], IDLE_SECONDS)
+                bytes_remaining, data_buffer = receive(bytes_remaining)
+                header = header + data_buffer
             except socket.timeout:
                 pass
             except ssl.SSLError as err:
@@ -317,7 +318,7 @@ if __name__ == '__main__':
                         soft_close()
                     else:
                         state = 'message'
-                elif len(receive_buffer) == 0:
+                elif len(data_buffer) == 0:
                     # disconnect signal from the other end
                     xbmc.log("Media Steward disconnecting gracefully", level=xbmc.LOGNOTICE)
                     soft_close()
@@ -329,16 +330,11 @@ if __name__ == '__main__':
                     xbmc.log("Media Steward disconnecting due to error in sizing", level=xbmc.LOGNOTICE)
                     soft_close()
 
-        if state == 'message':
+        elif state == 'message':
             try:
                 # receive the message
-                receive_buffer = conn.recv(bytes_remaining)
-                data += receive_buffer
-                bytes_remaining -= len(receive_buffer)
-            except ssl.SSLWantReadError:
-                select.select([conn], [], [], IDLE_SECONDS)
-            except ssl.SSLWantWriteError:
-                select.select([], [conn], [], IDLE_SECONDS)
+                bytes_remaining, data_buffer = receive(bytes_remaining)
+                data = data + data_buffer
             except socket.timeout:
                 pass
             except ssl.SSLError as err:
@@ -369,7 +365,7 @@ if __name__ == '__main__':
                     else:
                         state = 'sizing'
                     bytes_remaining = 4
-                elif len(receive_buffer) == 0:
+                elif len(data_buffer) == 0:
                     xbmc.log("Media Steward disconnecting gracefully", level=xbmc.LOGNOTICE)
                     soft_close()
                 elif bytes_remaining > 0:
@@ -378,7 +374,7 @@ if __name__ == '__main__':
                     xbmc.log("Media Steward disconnecting due to error in message", level=xbmc.LOGNOTICE)
                     soft_close()
 
-        if state == 'processing':
+        elif state == 'processing':
             if control_message_flag:
                 response = json.loads(zlib.decompress(data).decode('utf-8'))
                 xbmc.log("Media Steward received announce %s" % response, level=xbmc.LOGNOTICE)
@@ -420,7 +416,7 @@ if __name__ == '__main__':
                     data = b''
                     state = 'idle'
 
-        if state == 'disconnected':
+        elif state == 'disconnected':
             if monitor.waitForAbort(IDLE_SECONDS):
                 break
             if time.time() - start > wait_seconds:
