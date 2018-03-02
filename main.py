@@ -150,9 +150,8 @@ if __name__ == '__main__':
                 if addon.getSetting('ssl-validation') == 'false':
                     context.check_hostname = False
                     context.verify_mode = ssl.CERT_NONE
-                conn = context.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM),
-                                           server_hostname=TCP_HOST)
                 xbmc.log("Media Steward connecting to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
+                conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 try:
                     conn.connect((TCP_HOST, TCP_PORT))
                 except ssl.CertificateError as err:
@@ -201,6 +200,7 @@ if __name__ == '__main__':
                         hard_close()
                         start = time.time()
                 else:
+                    conn = context.wrap_socket(conn, server_hostname=TCP_HOST)
                     try:
                         # on successful connection
                         xbmc.log("Media Steward connected to %s" % TCP_HOST, level=xbmc.LOGNOTICE)
